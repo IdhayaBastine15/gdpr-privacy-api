@@ -1,0 +1,417 @@
+
+
+
+
+\============================================================
+  GDPR PRIVACY APP — FULL IMPLEMENTATION PLAN
+============================================================
+
+PROJECT OVERVIEW
+----------------
+A full-stack GDPR-compliant privacy management application.
+Users can view, edit, export, and delete their personal data.
+Admins can monitor GDPR requests and audit logs.
+
+Stack:
+  Backend  — FastAPI + PostgreSQL + SQLAlchemy + JWT
+  Frontend — React + TypeScript + Tailwind CSS + Shadcn/ui
+  Charts   — Recharts
+  Deploy   — Docker Compose (3 services)
+
+
+============================================================
+PHASE 1 — BACKEND FOUNDATION (Days 1–2)
+============================================================
+
+1.1  Project Scaffold
+  - Init Python project with pyproject.toml / requirements.txt
+  - Install: fastapi, uvicorn, sqlalchemy, asyncpg, alembic,
+             python-jose, passlib, pydantic, python-dotenv
+
+1.2  Database Setup (app/database.py)
+  - Async SQLAlchemy engine with PostgreSQL
+  - Session factory + Base declarative class
+  - Connection URL from environment variable DATABASE_URL
+
+1.3  Configuration (app/config.py)
+  - Pydantic Settings class
+  - Fields: DATABASE_URL, SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES,
+            ALGORITHM, ENVIRONMENT
+
+1.4  Models (app/models/)
+  - User model:
+      id (UUID), email, hashed_password, first_name, last_name,
+      phone, address, is_active, is_admin, created_at, anonymised_at
+  - Consent model:
+      id, user_id (FK), consent_type (ENUM), granted (bool),
+      updated_at, ip_address
+      ENUM values: marketing, analytics, third_party, essential
+  - AuditLog model:
+      id, user_id (FK), action (ENUM), timestamp, ip_address, details
+      ENUM values: ACCESS, DELETE, EXPORT, RECTIFY, CONSENT_CHANGE,
+                   LOGIN, REGISTER, ANONYMISE
+
+1.5  Alembic Migrations
+  - alembic init alembic
+  - Create initial migration for all tables
+  - alembic upgrade head
+
+
+============================================================
+PHASE 2 — AUTH ENDPOINTS (Day 2)
+============================================================
+
+2.1  Auth Schemas (app/auth/schemas.py)
+  - UserCreate: email, password, first_name, last_name, phone, address
+  - UserLogin: email, password
+  - Token: access_token, token_type
+  - UserResponse: id, email, first_name, last_name, is_admin
+
+2.2  Auth Utilities (app/auth/utils.py)
+  - hash_password(plain) → bcrypt hash
+  - verify_password(plain, hashed) → bool
+  - create_access_token(data, expires_delta) → JWT string
+  - get_current_user(token) → User — FastAPI dependency
+
+2.3  Auth Router (app/auth/router.py)
+  POST /auth/register
+    - Validate email uniqueness
+    - Hash password, create User record
+    - Create default consent records (all False except essential)
+    - Log REGISTER to AuditLog
+    - Return JWT
+
+  POST /auth/login
+    - Verify email + password
+    - Log LOGIN to AuditLog with IP
+    - Return JWT
+
+  GET /auth/me
+    - Protected — return current user profile
+
+
+============================================================
+PHASE 3 — GDPR ENDPOINTS (Days 3–4)
+============================================================
+
+3.1  GDPR Schemas (app/gdpr/schemas.py)
+  - ConsentUpdate: consent_type, granted
+  - UserUpdate: first_name, last_name, phone, address
+  - AuditLogResponse: action, timestamp, ip_address, details
+  - ExportData: full user data bundle
+
+3.2  GDPR Router (app/gdpr/router.py)
+
+  GET /me/data
+    - Return full user profile (Article 15 — Right of Access)
+    - Log ACCESS to AuditLog
+
+  PUT /me/data
+    - Update user fields (Article 16 — Right to Rectification)
+    - Log RECTIFY to AuditLog
+
+  DELETE /me/data
+    - GDPR "Right to be Forgotten" (Article 17)
+    - Strategy: Anonymise PII rather than hard delete
+        email → anon_{uuid}@deleted.gdpr
+        first_name, last_name, phone, address → "[REDACTED]"
+        is_active = False
+        anonymised_at = now()
+    - Revoke all consents
+    - Log ANONYMISE to AuditLog
+
+  GET /me/export
+    - Bundle all user data (profile + consents + audit logs)
+    - Return as JSON response (Article 20 — Data Portability)
+    - Log EXPORT to AuditLog
+
+  GET /me/consents
+    - Return all consent records for current user
+
+  PUT /me/consents
+    - Update a single consent (toggle on/off)
+    - Log CONSENT_CHANGE to AuditLog
+
+  GET /me/audit-logs
+    - Return paginated audit log for current user
+    - Query params: action_filter, page, page_size
+
+3.3  Admin Router (app/admin/router.py)
+  (Requires is_admin=True on JWT)
+
+  GET /admin/users
+    - Paginated list of all users (anonymised fields hidden)
+
+  GET /admin/audit-logs
+    - All audit logs across all users
+    - Filter by action, user_id, date range
+
+  GET /admin/stats
+    - Total users count
+    - Deletion requests (ANONYMISE count)
+    - Export requests count
+    - Consent withdrawals count
+    - Daily GDPR request counts (last 30 days) — for chart
+
+3.4  CORS + Middleware (app/main.py)
+  - CORSMiddleware: allow_origins=["http://localhost:3000"]
+  - TrustedHostMiddleware for production
+  - Custom middleware to capture real IP for audit logging
+
+
+============================================================
+PHASE 4 — FRONTEND SCAFFOLD (Day 5)
+============================================================
+
+4.1  Project Init
+  - npx create-vite@latest frontend --template react-ts
+  - Install: tailwindcss, shadcn/ui, axios, recharts,
+             react-router-dom, react-hook-form, zod
+
+4.2  Tailwind + Shadcn Setup
+  - tailwind.config.ts — dark navy theme
+      primary:   #0F172A (navy)
+      secondary: #1E293B
+      accent:    #3B82F6 (blue)
+      danger:    #EF4444 (red)
+      success:   #22C55E (green)
+  - shadcn/ui init — configure components.json
+
+4.3  Auth Context (src/context/AuthContext.tsx)
+  - Store JWT in memory (React state) — NOT localStorage
+  - AuthProvider wraps entire app
+  - Exposes: user, token, login(), logout(), isAuthenticated
+  - On logout: clear token from memory + redirect to /login
+  - Auto-logout on 401 response via Axios interceptor
+
+4.4  API Service (src/services/api.ts)
+  - Axios instance with baseURL = http://localhost:8000
+  - Request interceptor: attach Bearer token from memory
+  - Response interceptor: on 401 → trigger logout
+  - Functions:
+      auth: register(), login(), getMe()
+      gdpr: getMyData(), updateMyData(), deleteMyData()
+            exportMyData(), getConsents(), updateConsent()
+            getAuditLogs()
+      admin: getUsers(), getAllAuditLogs(), getStats()
+
+4.5  App Router (src/App.tsx)
+  - React Router v6 with protected routes
+  - Public routes:  /login, /register
+  - Protected routes: /dashboard, /my-activity, /edit,
+                      /export, /delete
+  - Admin routes:   /admin (requires isAdmin flag)
+  - Redirect unauthenticated users to /login
+
+
+============================================================
+PHASE 5 — FRONTEND PAGES (Days 6–8)
+============================================================
+
+5.1  Register Page (/register)
+  - Fields: first_name, last_name, email, password, phone, address
+  - react-hook-form + zod validation
+  - On success: store JWT in context, redirect to /dashboard
+  - Link to /login
+
+5.2  Login Page (/login)
+  - Fields: email, password
+  - On success: store JWT in memory, redirect to /dashboard
+  - Link to /register
+
+5.3  Navbar Component (src/components/Navbar.tsx)
+  - Dark navy sidebar (desktop) / top bar (mobile)
+  - Nav items: Dashboard, My Activity, Edit Data,
+               Export Data, Delete Account
+  - Admin badge visible if isAdmin
+  - Logout button — clears token from memory
+
+5.4  Dashboard Page (/dashboard)
+  - Personal Info Card: name, email, phone, address
+  - Consent Status Panel:
+      Four toggles: Marketing, Analytics, Third Party, Essential
+      Green = granted, Red = revoked
+      Each toggle calls PUT /me/consents immediately
+  - Quick Action Buttons:
+      "Export My Data" → /export
+      "Delete My Account" → /delete
+      "Edit My Data" → /edit
+
+5.5  Audit Log Page (/my-activity)
+  - AuditTable component: columns Action, Date, IP, Details
+  - Filter dropdown: ALL / ACCESS / DELETE / EXPORT / RECTIFY /
+                     CONSENT_CHANGE / LOGIN
+  - ActivityChart component:
+      Recharts BarChart — X: date, Y: request count
+      Color coded by action type
+  - Pagination controls
+
+5.6  Edit Data Page (/edit)
+  - Pre-filled form with current user data
+  - Editable: first_name, last_name, phone, address
+  - Email is read-only (identity anchor)
+  - On submit: PUT /me/data → success toast
+  - GDPR badge: "Article 16 — Right to Rectification"
+
+5.7  Export Data Page (/export)
+  - Preview card: shows what data will be exported
+      (profile fields, consent history, audit log count)
+  - Two buttons: "Download JSON" / "Download CSV"
+  - Confirmation modal before download triggers
+  - On confirm: GET /me/export → trigger browser download
+  - GDPR badge: "Article 20 — Right to Data Portability"
+
+5.8  Delete Account Page (/delete)
+  - Step 1: Warning screen — list of what will be deleted/anonymised
+  - Step 2: Type "DELETE" confirmation input
+  - Step 3: Final confirm button (red, disabled until input matches)
+  - On confirm: DELETE /me/data → logout → redirect to /login
+  - GDPR badge: "Article 17 — Right to Erasure"
+
+5.9  Admin Dashboard (/admin)
+  - Stats cards row:
+      Total Users | Deletion Requests | Exports | Consent Withdrawals
+  - Recharts LineChart: GDPR requests over last 30 days
+  - Full audit log table (all users) with user_id column
+  - Filter by action, user, date range
+  - Admin-only route guard (redirect non-admins to /dashboard)
+
+
+============================================================
+PHASE 6 — DOCKER + DEVOPS (Day 9)
+============================================================
+
+6.1  Backend Dockerfile
+  FROM python:3.12-slim
+  WORKDIR /app
+  COPY requirements.txt .
+  RUN pip install -r requirements.txt
+  COPY . .
+  CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+6.2  Frontend Dockerfile
+  FROM node:20-alpine AS builder
+  WORKDIR /app
+  COPY package*.json .
+  RUN npm ci
+  COPY . .
+  RUN npm run build
+
+  FROM nginx:alpine
+  COPY --from=builder /app/dist /usr/share/nginx/html
+  EXPOSE 3000
+
+6.3  docker-compose.yml
+  services:
+    db:
+      image: postgres:16
+      environment: POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
+      volumes: postgres_data:/var/lib/postgresql/data
+      healthcheck: pg_isready
+
+    backend:
+      build: ./backend
+      depends_on: db (service_healthy)
+      environment: DATABASE_URL, SECRET_KEY
+      ports: "8000:8000"
+
+    frontend:
+      build: ./frontend
+      depends_on: backend
+      ports: "3000:80"
+
+6.4  Environment Files
+  backend/.env:
+    DATABASE_URL=postgresql+asyncpg://...
+    SECRET_KEY=<random 64 char hex>
+    ALGORITHM=HS256
+    ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+  .env.example — committed to repo (no real secrets)
+
+
+============================================================
+PHASE 7 — TESTING (Day 10)
+============================================================
+
+7.1  Backend Tests (pytest + httpx AsyncClient)
+  - test_auth.py: register, login, duplicate email, wrong password
+  - test_gdpr.py: get data, update data, export, delete (anonymise)
+  - test_consents.py: get consents, toggle consent
+  - test_audit.py: verify audit log entries created on each action
+  - test_admin.py: admin endpoints reject non-admin users
+
+7.2  Frontend Tests (Vitest + React Testing Library)
+  - Login form renders + submits
+  - Register form validation
+  - Dashboard renders consent toggles
+  - Protected routes redirect unauthenticated users
+
+7.3  Integration Test
+  - Full flow: register → login → edit → export → delete
+
+
+============================================================
+PHASE 8 — POLISH + README (Day 11)
+============================================================
+
+8.1  Swagger/OpenAPI
+  - FastAPI auto-generates /docs (Swagger UI)
+  - Add descriptions to all endpoints
+  - Tag endpoints: auth, gdpr, admin
+
+8.2  Error Handling
+  - Backend: HTTPException with clear messages
+  - Frontend: Toast notifications (shadcn/ui Toast)
+  - 401 → auto logout, 403 → redirect, 500 → generic error toast
+
+8.3  Loading States
+  - Skeleton loaders on data fetch
+  - Disabled buttons during async calls
+  - Spinner on page transitions
+
+8.4  Accessibility
+  - ARIA labels on form inputs
+  - Keyboard-navigable consent toggles
+  - High contrast text on dark backgrounds
+
+8.5  README.md
+  - Project overview + GDPR article references
+  - Setup instructions (Docker + local dev)
+  - API endpoint reference
+  - Screenshots section
+  - Architecture diagram (ASCII)
+
+
+============================================================
+KEY ARCHITECTURAL DECISIONS
+============================================================
+
+JWT in Memory (not localStorage)
+  Reason: localStorage is vulnerable to XSS attacks. Storing JWT
+  in React state means it is cleared on page refresh — intentional
+  for GDPR apps where session persistence is a liability.
+
+Anonymisation over Hard Delete
+  Reason: Hard deleting rows breaks referential integrity and audit
+  trails. GDPR's "Right to Erasure" requires that PII is no longer
+  identifiable — anonymisation achieves this while preserving audit
+  log integrity for legal compliance.
+
+Async SQLAlchemy
+  Reason: FastAPI is async-native. Using asyncpg + async SQLAlchemy
+  maximises throughput for concurrent GDPR request handling.
+
+UUID Primary Keys
+  Reason: Sequential integer IDs leak user count and are predictable.
+  UUIDs are safer for a privacy-focused application.
+
+Consent as Separate Table
+  Reason: Consent history must be auditable under GDPR Article 7.
+  A separate table with timestamps allows you to prove what was
+  consented to and when.
+
+
+============================================================
+END OF IMPLEMENTATION PLAN
+============================================================

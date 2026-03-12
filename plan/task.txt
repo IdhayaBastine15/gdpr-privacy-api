@@ -1,0 +1,432 @@
+============================================================
+  GDPR PRIVACY APP — TASK LIST
+============================================================
+
+Legend:
+  [ ] = Not started
+  [~] = In progress
+  [x] = Complete
+  Priority: P1 = Must have | P2 = Should have | P3 = Nice to have
+
+------------------------------------------------------------
+SPRINT 1 — BACKEND FOUNDATION
+------------------------------------------------------------
+
+TASK-001 [P1] [ ] Scaffold backend project structure
+  - Create app/ directory with __init__.py files
+  - Create requirements.txt with all dependencies
+  - Create app/main.py with FastAPI instance
+  Files: backend/requirements.txt, backend/app/main.py
+
+TASK-002 [P1] [ ] Set up database connection
+  - Async SQLAlchemy engine with asyncpg
+  - Session dependency for FastAPI
+  - Base declarative class
+  Files: backend/app/database.py
+
+TASK-003 [P1] [ ] Create app configuration
+  - Pydantic BaseSettings class
+  - Load from .env file
+  - Fields: DATABASE_URL, SECRET_KEY, ALGORITHM, TOKEN_EXPIRE
+  Files: backend/app/config.py, backend/app/.env.example
+
+TASK-004 [P1] [ ] Define database models
+  - User model with all PII fields + anonymisation fields
+  - Consent model with ENUM consent types
+  - AuditLog model with ENUM action types
+  Files: backend/app/models/user.py, consent.py, audit_log.py
+
+TASK-005 [P1] [ ] Set up Alembic migrations
+  - alembic init inside backend/
+  - Configure env.py to use async engine
+  - Create initial migration
+  Files: backend/alembic/, backend/alembic.ini
+
+TASK-006 [P1] [ ] Implement password hashing utilities
+  - hash_password() using bcrypt
+  - verify_password() comparison
+  Files: backend/app/auth/utils.py
+
+TASK-007 [P1] [ ] Implement JWT utilities
+  - create_access_token() with expiry
+  - get_current_user() FastAPI dependency
+  - get_admin_user() dependency (checks is_admin)
+  Files: backend/app/auth/utils.py
+
+------------------------------------------------------------
+SPRINT 2 — AUTH ENDPOINTS
+------------------------------------------------------------
+
+TASK-008 [P1] [ ] Build POST /auth/register endpoint
+  - Validate email uniqueness (409 if duplicate)
+  - Hash password
+  - Create User + default Consent records
+  - Log REGISTER action to AuditLog
+  - Return JWT token
+  Files: backend/app/auth/router.py, schemas.py
+
+TASK-009 [P1] [ ] Build POST /auth/login endpoint
+  - Validate credentials
+  - Log LOGIN with IP address
+  - Return JWT token
+  Files: backend/app/auth/router.py
+
+TASK-010 [P1] [ ] Build GET /auth/me endpoint
+  - Protected by get_current_user dependency
+  - Return user profile (no password hash)
+  Files: backend/app/auth/router.py
+
+TASK-011 [P2] [ ] Add CORS middleware
+  - Allow http://localhost:3000 in development
+  - Expose Authorization header
+  Files: backend/app/main.py
+
+TASK-012 [P2] [ ] Add IP extraction middleware
+  - Extract real IP from X-Forwarded-For or request.client
+  - Attach to request state for audit logging
+  Files: backend/app/middleware.py, main.py
+
+------------------------------------------------------------
+SPRINT 3 — GDPR ENDPOINTS
+------------------------------------------------------------
+
+TASK-013 [P1] [ ] Build GET /me/data endpoint
+  - Return full user profile (Article 15)
+  - Log ACCESS action to AuditLog
+  Files: backend/app/gdpr/router.py, schemas.py
+
+TASK-014 [P1] [ ] Build PUT /me/data endpoint
+  - Accept partial updates (first_name, last_name, phone, address)
+  - Log RECTIFY action to AuditLog (Article 16)
+  Files: backend/app/gdpr/router.py
+
+TASK-015 [P1] [ ] Build DELETE /me/data endpoint (Anonymise)
+  - Replace PII with [REDACTED] values
+  - Set is_active = False, anonymised_at = now()
+  - Revoke all consents
+  - Log ANONYMISE to AuditLog (Article 17)
+  Files: backend/app/gdpr/router.py
+
+TASK-016 [P1] [ ] Build GET /me/export endpoint
+  - Bundle: user profile + all consents + all audit logs
+  - Return as JSON (Article 20)
+  - Log EXPORT to AuditLog
+  Files: backend/app/gdpr/router.py
+
+TASK-017 [P1] [ ] Build GET /me/consents endpoint
+  - Return all 4 consent records for current user
+  Files: backend/app/gdpr/router.py
+
+TASK-018 [P1] [ ] Build PUT /me/consents endpoint
+  - Toggle a single consent type on/off
+  - Log CONSENT_CHANGE to AuditLog
+  Files: backend/app/gdpr/router.py
+
+TASK-019 [P1] [ ] Build GET /me/audit-logs endpoint
+  - Return paginated audit log entries for current user
+  - Query params: action (filter), page, page_size
+  Files: backend/app/gdpr/router.py
+
+------------------------------------------------------------
+SPRINT 4 — ADMIN ENDPOINTS
+------------------------------------------------------------
+
+TASK-020 [P1] [ ] Build GET /admin/users endpoint
+  - Paginated user list (admin only)
+  - Hide password hash, show anonymised flag
+  Files: backend/app/admin/router.py, schemas.py
+
+TASK-021 [P1] [ ] Build GET /admin/audit-logs endpoint
+  - All audit logs across all users
+  - Filter: action, user_id, date_from, date_to
+  - Paginated
+  Files: backend/app/admin/router.py
+
+TASK-022 [P1] [ ] Build GET /admin/stats endpoint
+  - Total users (active + anonymised)
+  - Count of ANONYMISE actions (deletion requests)
+  - Count of EXPORT actions
+  - Count of CONSENT_CHANGE where granted=False (withdrawals)
+  - Daily counts for last 30 days (for chart data)
+  Files: backend/app/admin/router.py
+
+------------------------------------------------------------
+SPRINT 5 — BACKEND TESTS
+------------------------------------------------------------
+
+TASK-023 [P1] [ ] Write auth tests
+  - test_register_success
+  - test_register_duplicate_email
+  - test_login_success
+  - test_login_wrong_password
+  - test_get_me_authenticated
+  - test_get_me_unauthenticated
+  Files: backend/tests/test_auth.py
+
+TASK-024 [P1] [ ] Write GDPR endpoint tests
+  - test_get_my_data
+  - test_update_my_data
+  - test_export_my_data
+  - test_delete_my_data_anonymises_pii
+  - test_deleted_user_cannot_login
+  Files: backend/tests/test_gdpr.py
+
+TASK-025 [P2] [ ] Write consent tests
+  - test_get_consents_returns_four_records
+  - test_update_consent_toggle
+  - test_consent_change_logged
+  Files: backend/tests/test_consents.py
+
+TASK-026 [P2] [ ] Write audit log tests
+  - test_audit_log_created_on_register
+  - test_audit_log_created_on_login
+  - test_audit_log_created_on_access
+  - test_audit_log_created_on_export
+  Files: backend/tests/test_audit.py
+
+TASK-027 [P2] [ ] Write admin tests
+  - test_admin_endpoint_rejects_non_admin
+  - test_admin_can_get_all_users
+  - test_admin_can_get_stats
+  Files: backend/tests/test_admin.py
+
+------------------------------------------------------------
+SPRINT 6 — FRONTEND SCAFFOLD
+------------------------------------------------------------
+
+TASK-028 [P1] [ ] Initialise React + TypeScript project
+  - Vite + React + TypeScript template
+  - Install: tailwindcss, shadcn/ui, axios,
+             react-router-dom, react-hook-form, zod, recharts
+  Files: frontend/package.json, vite.config.ts
+
+TASK-029 [P1] [ ] Configure Tailwind with custom theme
+  - Dark navy colour palette
+  - Extend with: primary, secondary, accent, danger, success
+  Files: frontend/tailwind.config.ts, src/index.css
+
+TASK-030 [P1] [ ] Initialise shadcn/ui
+  - npx shadcn-ui@latest init
+  - Add components: Button, Card, Input, Label, Toggle,
+                    Dialog, Toast, Badge, Skeleton
+  Files: frontend/components.json, src/components/ui/
+
+TASK-031 [P1] [ ] Create AuthContext
+  - State: user, token (in memory), isAuthenticated, isAdmin
+  - login(token, user): set state
+  - logout(): clear state + redirect
+  - Persist nothing to localStorage
+  Files: frontend/src/context/AuthContext.tsx
+
+TASK-032 [P1] [ ] Create Axios API service
+  - Base instance with http://localhost:8000
+  - Request interceptor: attach Bearer token
+  - Response interceptor: logout on 401
+  - Typed function for every endpoint
+  Files: frontend/src/services/api.ts
+
+TASK-033 [P1] [ ] Set up React Router
+  - BrowserRouter with all routes
+  - ProtectedRoute wrapper component
+  - AdminRoute wrapper component
+  - Default redirect to /login if unauthenticated
+  Files: frontend/src/App.tsx, src/components/ProtectedRoute.tsx
+
+------------------------------------------------------------
+SPRINT 7 — FRONTEND AUTH PAGES
+------------------------------------------------------------
+
+TASK-034 [P1] [ ] Build Register page (/register)
+  - Form: first_name, last_name, email, password, phone, address
+  - Zod schema validation
+  - API call to POST /auth/register
+  - On success: store JWT, redirect to /dashboard
+  Files: frontend/src/pages/Register.tsx
+
+TASK-035 [P1] [ ] Build Login page (/login)
+  - Form: email, password
+  - API call to POST /auth/login
+  - On success: store JWT, redirect to /dashboard
+  Files: frontend/src/pages/Login.tsx
+
+------------------------------------------------------------
+SPRINT 8 — FRONTEND MAIN PAGES
+------------------------------------------------------------
+
+TASK-036 [P1] [ ] Build Navbar component
+  - Dark navy sidebar
+  - Nav links: Dashboard, My Activity, Edit Data, Export, Delete
+  - Admin link visible to admins only
+  - Logout button
+  Files: frontend/src/components/Navbar.tsx
+
+TASK-037 [P1] [ ] Build Dashboard page (/dashboard)
+  - Personal Info Card (DataCard component)
+  - Consent Status Panel with 4 toggles (ConsentToggle component)
+  - Quick action buttons row
+  Files: frontend/src/pages/Dashboard.tsx
+         frontend/src/components/DataCard.tsx
+         frontend/src/components/ConsentToggle.tsx
+
+TASK-038 [P1] [ ] Build Audit Log page (/my-activity)
+  - AuditTable component with columns
+  - Action filter dropdown
+  - ActivityChart component (Recharts BarChart)
+  - Pagination controls
+  Files: frontend/src/pages/AuditLog.tsx
+         frontend/src/components/AuditTable.tsx
+         frontend/src/components/ActivityChart.tsx
+
+TASK-039 [P1] [ ] Build Edit Data page (/edit)
+  - Pre-populated form from GET /me/data
+  - Editable fields only (email read-only)
+  - Submit calls PUT /me/data
+  - Success/error toast notifications
+  - GDPR Article 16 reference badge
+  Files: frontend/src/pages/EditData.tsx
+
+TASK-040 [P1] [ ] Build Export Data page (/export)
+  - Export preview card
+  - JSON + CSV download buttons
+  - Confirmation modal before download
+  - Trigger file download on confirm
+  - GDPR Article 20 reference badge
+  Files: frontend/src/pages/Export.tsx
+
+TASK-041 [P1] [ ] Build Delete Account page (/delete)
+  - Step 1: warning + list of what will be anonymised
+  - Step 2: type "DELETE" confirmation input
+  - Step 3: red confirm button (disabled until input matches)
+  - On success: logout + redirect to /login
+  - GDPR Article 17 reference badge
+  Files: frontend/src/pages/DeleteAccount.tsx
+
+TASK-042 [P1] [ ] Build Admin Dashboard page (/admin)
+  - Stats cards row (4 cards)
+  - Recharts LineChart of requests over 30 days
+  - Full audit log table with user_id column
+  - Filters: action type, date range
+  Files: frontend/src/pages/AdminDashboard.tsx
+
+------------------------------------------------------------
+SPRINT 9 — FRONTEND POLISH
+------------------------------------------------------------
+
+TASK-043 [P2] [ ] Add loading skeletons
+  - Skeleton component on all data-fetching pages
+  - Show while API calls are in flight
+  Files: existing page files
+
+TASK-044 [P2] [ ] Add toast notification system
+  - shadcn/ui Toaster in App.tsx
+  - Success toasts: green
+  - Error toasts: red
+  - Use in: edit save, consent toggle, export, delete
+  Files: frontend/src/App.tsx, page files
+
+TASK-045 [P2] [ ] Add form validation feedback
+  - Inline error messages under each invalid field
+  - Real-time validation as user types (on blur)
+  Files: Register.tsx, Login.tsx, EditData.tsx
+
+TASK-046 [P3] [ ] Add responsive mobile layout
+  - Collapse sidebar to hamburger menu on mobile
+  - Stack cards vertically on small screens
+  Files: Navbar.tsx, Dashboard.tsx
+
+------------------------------------------------------------
+SPRINT 10 — DOCKER + DEPLOYMENT
+------------------------------------------------------------
+
+TASK-047 [P1] [ ] Write backend Dockerfile
+  - Python 3.12 slim base
+  - Install dependencies
+  - Copy app code
+  - Uvicorn CMD
+  Files: backend/Dockerfile
+
+TASK-048 [P1] [ ] Write frontend Dockerfile
+  - Multi-stage: node builder + nginx serve
+  - Build React app
+  - Serve dist/ with nginx
+  Files: frontend/Dockerfile, frontend/nginx.conf
+
+TASK-049 [P1] [ ] Write docker-compose.yml
+  - db service: postgres:16 with healthcheck
+  - backend service: depends on healthy db
+  - frontend service: depends on backend
+  - Named volumes for postgres data
+  Files: docker-compose.yml, .env.example
+
+TASK-050 [P2] [ ] Add Makefile shortcuts
+  - make up: docker-compose up --build
+  - make down: docker-compose down
+  - make migrate: run alembic upgrade head
+  - make test: run pytest in backend container
+  Files: Makefile
+
+------------------------------------------------------------
+SPRINT 11 — DOCUMENTATION
+------------------------------------------------------------
+
+TASK-051 [P1] [ ] Write README.md
+  - Project overview + GDPR articles covered
+  - Quick start (Docker)
+  - Local development setup
+  - API endpoint reference
+  - Architecture decisions
+  - Screenshots (placeholder)
+  Files: README.md
+
+TASK-052 [P2] [ ] Add OpenAPI endpoint descriptions
+  - docstrings on all FastAPI route functions
+  - summary + description + response_model everywhere
+  - Tags: auth, gdpr, admin
+  Files: backend/app/auth/router.py, gdpr/router.py, admin/router.py
+
+TASK-053 [P3] [ ] Create admin seed script
+  - Script to create first admin user via CLI
+  - Useful for initial setup without UI
+  Files: backend/scripts/create_admin.py
+
+------------------------------------------------------------
+TASK SUMMARY
+------------------------------------------------------------
+
+Total Tasks : 53
+P1 (Must)   : 36
+P2 (Should) : 13
+P3 (Nice)   :  4
+
+Sprints     : 11
+Est. Days   : 10–11 working days
+
+------------------------------------------------------------
+COMPLETION CHECKLIST
+------------------------------------------------------------
+
+Backend:
+  [ ] All models created and migrated
+  [ ] Auth endpoints working (register, login, /me)
+  [ ] GDPR endpoints working (access, rectify, erase, export)
+  [ ] Consent endpoints working
+  [ ] Admin endpoints working
+  [ ] All P1 tests passing
+
+Frontend:
+  [ ] Auth context working (JWT in memory)
+  [ ] All pages built and connected to API
+  [ ] Protected routes working
+  [ ] Admin routes working
+  [ ] Loading states on all pages
+  [ ] Toast notifications on all actions
+
+DevOps:
+  [ ] docker-compose up starts all 3 services
+  [ ] Frontend connects to backend successfully
+  [ ] Backend connects to postgres successfully
+  [ ] README complete for GitHub upload
+
+============================================================
+END OF TASK LIST
+============================================================
